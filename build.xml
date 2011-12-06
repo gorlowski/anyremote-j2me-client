@@ -69,6 +69,17 @@
     </and>
   </condition>
 
+  <!-- Fail build if there is no defined wtk.home -->
+  <fail message='To use this build, you must set a wtk.home property to point to the install root of your j2me WTK'>
+    <condition>
+      <not>
+        <resourceexists>
+          <file file="${wtk.home}"/>
+        </resourceexists>
+      </not>
+    </condition>
+  </fail>
+
   <!-- ======= -->
   <!-- Targets -->
   <!-- ======= -->
