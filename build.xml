@@ -1,0 +1,244 @@
+<?xml version="1.0"?>
+<project name='anyremote-j2me-client' default='help'>
+
+  <property environment="env"/>
+
+  <property name="build.config.dir" value='src/build'/>
+
+  <!-- You can specify an optional location to a user.properties file to override default prop build values -->
+  <property name='user.properties.location' value='${build.config.dir}/user.properties'/>
+  <property file="${user.properties.location}"/>
+  <property file="${build.config.dir}/project.properties"/>
+
+  <condition property='has_all_deps'>
+    <and>
+      <available file='${antenna.jar}'/>
+      <available file='${proguard.jar}'/>
+    </and>
+  </condition>
+
+  <property name='jsr82' value='true'/>
+  <condition property='jsr82.variant' value='jsr82' else='nojsr82'>
+    <equals trim='true' casesensitive='false' arg1='${jsr82}' arg2='true'/>
+  </condition>
+
+  <property name='base.permissions' value='javax.microedition.io.Connector.socket,javax.microedition.io.Connector.comm'/>
+  <condition property='midlet.permissions.opt' 
+             value='javax.microedition.io.Connector.bluetooth.client,${base.permissions}'
+             else='${base.permissions}'>
+    <equals casesensitive='false' trim='true' arg1='${jsr82.variant}' arg2='jsr82'/>
+  </condition>
+
+  <property name='opt.src.dir' value='src/${jsr82.variant}/java'/>
+
+  <property name='icon.size' value='all'/>
+  <condition property='main.icon' value='anyRemote64.png' else='anyRemote.png'>
+    <equals trim='true' casesensitive='false' arg1='${icon.size}' arg2='64'/>
+  </condition>
+
+  <condition property='icon.size.filter' value='**/*' else='${icon.size}/**/*'>
+    <equals trim='true' casesensitive='false' arg1='${icon.size}' arg2='all'/>
+  </condition>
+
+  <path id='project.classpath'>
+    <pathelement path="${antenna.jar}"/>
+    <pathelement path="${proguard.jar}"/>
+    <fileset file="${wtk.home}/lib/jsr75.jar"/>
+    <fileset file="${wtk.home}/lib/jsr082.jar"/>
+  </path>
+
+  <property name='build.variant' value='${midlet.name}-${jsr82.variant}-${icon.size}'/>
+  <property name='jarfile' value='${project.build.directory}/${build.variant}.jar'/>
+  <property name='jadfile' value='${project.build.directory}/${build.variant}.jad'/>
+
+  <condition property="windows">
+    <os family="windows"/>
+  </condition>
+
+  <condition property='must_symlink_proguard'>
+    <and>
+      <not><isset property='windows'/></not>
+      <not><available file='${proguard.jar}'/></not>
+    </and>
+  </condition>
+
+  <condition property='must_cp_proguard'>
+    <and>
+      <isset property='windows'/>
+      <not><available file='${proguard.jar}'/></not>
+    </and>
+  </condition>
+
+  <!-- ======= -->
+  <!-- Targets -->
+  <!-- ======= -->
+  <target name='package' depends='initialize, resolve, compile, jad, jar, obfuscate, preverify, sign' description='Build the project'/>
+  <target name='run' depends='package, run:midlet' description='Run the App'/>
+
+  <target name="jad">
+    <wtkjad jadfile="${jadfile}"
+            jarfile="${jarfile}"
+            name="${midlet.name}"
+            vendor="${vendor}"
+            version="${project.version}">
+        <midlet name="${midlet.name}"
+                class="${project.mainClass}"
+                icon="${main.icon}"/>
+        <attribute name="MIDlet-Permissions" value="${midlet.permissions}" if="midlet.permissions"/>
+        <attribute name="MIDlet-Permissions-Opt" value="${midlet.permissions.opt}" if="midlet.permissions.opt"/>
+    </wtkjad>
+  </target>
+
+  <target name='jar' description='package contents into a jar'>
+    <wtkpackage basedir="${project.build.outputDirectory}"
+                jadfile="${jadfile}"
+                jarfile="${jarfile}"
+                preverify="false">
+          <fileset dir="${project.build.resources}">
+            <include name="${main.icon}"/>
+            <include name="${icon.size.filter}"/>
+          </fileset>
+    </wtkpackage>
+  </target>
+
+  <target name='obfuscate' description='obfuscate and minify the output jar with proguard'>
+    <wtkobfuscate jadfile="${jadfile}"
+                  jarfile="${jarfile}"
+                  classpathref="project.classpath"/>
+  </target>
+
+  <target name='sign' description='Sign the jar and jad files with our code signing certificate' if="${sign.app}">
+    <echo>Signing with: store pass: ${keystore.pass} / key pass: ${code_signing_key.pass}</echo>
+    <wtksign keystore="${keystore.file}"
+             jarfile="${jarfile}"
+             jadfile="${jadfile}"
+             storepass="${keystore.pass}"
+             certpass="${code_signing_key.pass}"
+             certalias="${code_signing_cert.alias}"/>
+  </target>
+
+  <target name='preverify'>
+    <wtkpreverify jarfile="${jarfile}" jadfile="${jadfile}" classpathref='project.classpath'/>
+  </target>
+
+  <target name='run:midlet' depends='resolve'>
+    <wtkrun jadfile="${jadfile}" device='${device}' wait="${wtk.run.wait}"/>
+  </target>
+
+  <target name='compile' description='compile java sources' depends='initialize,resolve'>
+    <wtkbuild destdir="${project.build.outputDirectory}"
+              classpathref="project.classpath"
+              preverify="false">
+      <src path="${project.build.sourceDirectory}"/>
+      <src path="${opt.src.dir}"/>
+    </wtkbuild>
+  </target>
+
+  <target name='clean:lib' description='delete lib.dir'>
+    <delete dir="${lib.dir}"/>
+  </target>
+
+  <target name='clean' description='delete the target directory, including compiled class, jar and jad files'>
+    <delete dir="${project.build.directory}"/>
+  </target>
+
+  <target name='initialize' description='initialize target directories'>
+    <mkdir dir="${project.build.outputDirectory}"/>
+    <mkdir dir="${lib.dir}"/>
+
+    <!--
+      classpath will include lib/*jar, any jars specified on the ant command line with -lib, and all jars
+      in ant's lib directory (including ones symlinked there)
+    -->
+    <path id="lib.classpath">
+      <fileset dir="${lib.dir}" includes="*.jar"/>
+      <pathelement path="${java.class.path}"/>
+    </path>
+
+  </target>
+
+  <target name='resolve:maven' description='get build deps with maven ant tasks' depends='initialize' unless='has_all_deps'>
+    <available classname='org.apache.maven.artifact.Artifact' property='maven_ant_tasks_available' classpathref='lib.classpath'/>
+    <antcall target='download-maven-ant-tasks' inheritAll='true' inheritRefs='true'/>
+  </target>
+
+  <target name='resolve' depends='resolve:deps,link-proguard'>
+    <taskdef resource="antenna.properties" classpathref="lib.classpath"/>
+  </target>
+
+  <target name='resolve:deps' description='retrieve dependencies with maven and copy them to lib.dir' 
+      depends='initialize,resolve:maven' unless='has_all_deps'>
+
+    <taskdef name="dependencies" classname="org.apache.maven.artifact.ant.DependenciesTask" classpathref='lib.classpath'/>
+
+    <dependencies filesetId="dependency.fileset" useScope="runtime">
+      <dependency groupId="net.sf.antenna" artifactId="antenna" version="${antenna.version}"/>
+      <dependency groupId="net.sf.proguard" artifactId="proguard" version="${proguard.version}"/>
+    </dependencies>
+
+    <copy todir="${lib.dir}">
+      <fileset refid="dependency.fileset" />
+      <mapper type="flatten" />
+    </copy>
+
+  </target>
+
+  <target name='link-proguard' depends='link-proguard-unix,cp-proguard-windows'/>
+  <target name='link-proguard-unix' if='must_symlink_proguard'>
+    <symlink link="${lib.dir}/proguard.jar" resource="proguard-${proguard.version}.jar"/>
+  </target>
+  <target name='cp-proguard-windows' if='must_cp_proguard'>
+    <copy tofile="${lib.dir}/proguard.jar" file="${lib.dir}/proguard-${proguard.version}.jar"/>
+  </target>
+
+  <target name='debug:libclasspath' description='print out our lib classpath' depends='initialize'>
+    <pathconvert pathsep="${line.separator}|   |-- "
+                 property="echo.path.compile"
+                 refid="lib.classpath">
+    </pathconvert>
+    <echo message="|-- compile classpath"/>
+    <echo message="|   |"/>
+    <echo message="|   |-- ${echo.path.compile}"/>
+  </target>
+
+  <!--
+    Download the maven ant tasks only if they are not already on the classpath
+    and if they are not alread on the classpath
+  -->
+  <target name='download-maven-ant-tasks' depends='initialize' unless='maven_ant_tasks_available'>
+    <get dest='${lib.dir}' 
+         src='http://apache.cs.utah.edu/maven/binaries/maven-ant-tasks-2.1.3.jar' 
+         skipexisting='true'/> 
+  </target>
+
+  <!-- For *nix only -->
+  <target name='fix_wm_name'
+    description='If you run a non-reparenting window manager with x11/xorg, run this target once per xorg session to fix irregular emulator GUI behavior'>
+    <exec executable="wmname">
+      <arg value="LG3D"/>
+    </exec>
+  </target>
+
+  <target name='props' description='print all build properties. This is just for debugging the build.'>
+    <echoproperties/>
+  </target>
+
+  <target name='help'>
+    <concat>
+      <fileset file="README.rst"/>
+      <filterchain>
+        <tailfilter lines='78'/>
+      </filterchain>
+    </concat>
+  </target>
+
+  <!-- a hack but good-enough -->
+  <target name='how_many_lines'>
+    <echo>
+      Run this:
+        n=`cat README.rst |sed '1,/^Build Documentation/d' |wc -l`
+        echo $((n+2))
+    </echo>
+  </target>
+
+</project>

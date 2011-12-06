@@ -1,0 +1,11 @@
+### Downloaded build dependencies
+lib
+
+### Build artifacts
+target
+
+### Do not check in our keystore
+src/build/keystore
+
+### Do not check in custom user properties
+src/build/user.properties
